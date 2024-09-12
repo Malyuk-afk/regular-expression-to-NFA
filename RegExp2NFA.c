@@ -184,8 +184,6 @@ int main()
 {
     RegExp *r;
     // carete a regular expression "([0 − 9][0 − 9]∗.[0 − 9]∗)|(.[0 − 9][0 − 9]∗)"
-    printf("start alloc\n");
-    fflush(stdout);
     r = alternation(
         concat(
             concat(
@@ -204,12 +202,5 @@ int main()
     
     printRegExp(r);
     freeRegExp(r);
-
-    //print pointer r
-    printf("\n");
-    printf("pointer r: %p\n", r);
-    printf("\n");
-
-    printRegExp(r);
     return 0;
 }
