@@ -9,6 +9,9 @@
 #define INTERVAL 5
 
 #define MAX_STATE 100
+#define MAX_CHAR 96 // printable characters are from 1 to 95
+#define EPSILON 0
+#define INDEX(c) ((c) - 31)
 
 // define the structure of regular expression
 typedef struct
@@ -50,6 +53,7 @@ typedef struct CharList CharList;
 
 struct ExpList
 {
+    char nextstate;
     RegExp *exp;
     ExpList *next;
 };
@@ -180,10 +184,24 @@ void printRegExp(RegExp *r)
     }
 }
 
+int compile(ExpList **ExpNFA, CharList **CharNFA)
+{
+    int i = 0;
+    ExpList *p = ExpNFA[i];
+    while (p)
+    {
+        printf("State %d: ", i);
+        printRegExp(p->exp);
+        printf(" -> %d\n", p->nextstate);
+        p = p->next;
+    }
+    return 0;
+}
+
 int main()
 {
     RegExp *r;
-    // carete a regular expression "([0 − 9][0 − 9]∗.[0 − 9]∗)|(.[0 − 9][0 − 9]∗)"
+    // carete a regular expression tree "([0 − 9][0 − 9]∗.[0 − 9]∗)|(.[0 − 9][0 − 9]∗)"
     r = alternation(
         concat(
             concat(
@@ -201,6 +219,20 @@ int main()
               );
     
     printRegExp(r);
+
+    //
+    ExpList **ExpNFA = calloc(sizeof(ExpList), MAX_STATE);
+    CharList **CharNFA = calloc(sizeof(CharList), MAX_CHAR);
+
+    // state 0 is the start state, state 1 is the final state
+    // currently, r is the only one edge
+    ExpNFA[0] = (ExpList *)malloc(sizeof(ExpList));
+    ExpNFA[0]->nextstate = 1;
+    ExpNFA[0]->exp = r;
+    ExpNFA[0]->next = NULL;
+
+    compile(ExpNFA, CharNFA);
     freeRegExp(r);
+    r = NULL;
     return 0;
 }
