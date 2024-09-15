@@ -9,6 +9,7 @@
 #define INTERVAL 5
 
 #define MAX_STATE 100
+#define MAX_STACK 100
 #define MAX_Terminal 96 // printable characters are from 1 to 95, 0 for epsilon
 #define EPSILON (0 + 31)
 #define INDEX(c) ((c) - 31)
@@ -190,7 +191,18 @@ ExpList *allocExpList()
     if (!p)
     {
         printf("Error: memory allocation failed\n");
-        return 0;
+        exit(1);
+    }
+    return p;
+}
+
+CharList *allocCharList()
+{
+    CharList *p = (CharList *)calloc(sizeof(CharList), 1);
+    if (!p)
+    {
+        printf("Error: memory allocation failed\n");
+        exit(1);
     }
     return p;
 }
@@ -242,12 +254,7 @@ int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
         }
         if (q->c != nextstate)
         {
-            q->next = (CharList *)calloc(sizeof(CharList), 1);
-            if (!q->next)
-            {
-                printf("Error: memory allocation failed\n");
-                return -1;
-            }
+            q->next = allocCharList();
             q = q->next;
             q->c = nextstate;
         }
@@ -258,22 +265,31 @@ int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
 int compile(ExpList **ExpNFA, CharList ***CharNFA)
 {
     int state = 1;
+    ExpList *p;
+    int type, nextstate, i, news;
+    RegExp *left, *right, *exp;
+    ExpList *q;
+    char c, start, end;
+
     while (ExpNFA[state])
     {
+        //epsilon identity transition is added to the beginning of the list
+        addTerminal(CharNFA, EPSILON, state, state);
+
         while (ExpNFA[state])
         {
-            ExpList *p = ExpNFA[state];
-            int type = p->exp->type;
+            p = ExpNFA[state];
+             type = p->exp->type;
             printRegExp(p->exp);
             printf("\n");
             printf("state %d\n", state);
             if (type == CONCAT)
             {
-                RegExp *left = ((Concat *)p->exp->data)->left;
-                RegExp *right = ((Concat *)p->exp->data)->right;
-                int nextstate = p->nextstate;
-                int i = state;
-                int news = newstate((void **)ExpNFA, state);
+                left = ((Concat *)p->exp->data)->left;
+                right = ((Concat *)p->exp->data)->right;
+                nextstate = p->nextstate;
+                i = state;
+                news = newstate((void **)ExpNFA, state);
                 if (!news)
                 {
                     return -1;
@@ -291,9 +307,9 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
 
             else if (type == KLEENE)
             {
-                RegExp *exp = ((Kleene *)p->exp->data)->exp;
-                int nextstate = p->nextstate;
-                int i = state;
+                exp = ((Kleene *)p->exp->data)->exp;
+                nextstate = p->nextstate;
+                i = state;
                 p->exp = exp;
                 addTerminal(CharNFA, EPSILON, state, nextstate);
                 p->nextstate = state;
@@ -301,8 +317,8 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
 
             else if (type == TERMINAL)
             {
-                char c = ((Terminal *)p->exp->data)->terminal;
-                int nextstate = p->nextstate;
+                c = ((Terminal *)p->exp->data)->terminal;
+                nextstate = p->nextstate;
                 if (addTerminal(CharNFA, c, state, nextstate))
                 {
                     return -1;
@@ -314,10 +330,10 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
 
             else if (type == ALTERNATION)
             {
-                RegExp *left = ((Alternation *)p->exp->data)->left;
-                RegExp *right = ((Alternation *)p->exp->data)->right;
-                int nextstate = p->nextstate;
-                ExpList *q = p;
+                left = ((Alternation *)p->exp->data)->left;
+                right = ((Alternation *)p->exp->data)->right;
+                nextstate = p->nextstate;
+                q = p;
                 while (q->next)
                 {
                     q = q->next;
@@ -334,10 +350,10 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
             }
             else if (type == INTERVAL)
             {
-                char start = ((Interval *)p->exp->data)->start;
-                char end = ((Interval *)p->exp->data)->end;
-                int nextstate = p->nextstate;
-                for (char c = start; c <= end; c++)
+                start = ((Interval *)p->exp->data)->start;
+                end = ((Interval *)p->exp->data)->end;
+                nextstate = p->nextstate;
+                for (c = start; c <= end; c++)
                 {
                     if (addTerminal(CharNFA, c, state, nextstate))
                     {
@@ -386,22 +402,70 @@ int printNFA(CharList ***CharNFA)
     }
 }
 
+void refineEpsilon(CharList ***CharNFA)
+{
+    int i, j, k;
+    CharList *p, *q, *r;
+    for (i = 0; i < MAX_STATE; i++)
+    {
+        if (CharNFA[i])
+        {
+            for (j = 0; j < MAX_Terminal; j++)
+            {
+                p = CharNFA[i][j];
+                if (p)
+                {
+                    if (j == 0)
+                    {
+                        while (p)
+                        {
+                            q = CharNFA[p->c][0];
+                            while (q)
+                            {
+                                r = CharNFA[i][0];
+                                while (r && r->c != q->c)
+                                {
+                                    r = r->next;
+                                }
+                                if (!r)
+                                {
+                                    r = (CharList *)calloc(sizeof(CharList), 1);
+                                    if (!r)
+                                    {
+                                        printf("Error: memory allocation failed\n");
+                                        return;
+                                    }
+                                    r->c = q->c;
+                                    r->next = CharNFA[i][0];
+                                    CharNFA[i][0] = r;
+                                }
+                                q = q->next;
+                            }
+                            p = p->next;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+typedef struct
+{
+    char *remainder;
+    CharList *state;
+} stateFrame;
+
 int runNFA(CharList ***CharNFA, char *input)
 {
-    typedef struct
-    {
-        CharList *states;
-        char *remand;
-    } Branch;
-    Branch *stack = (Branch *)calloc(sizeof(Branch), 100);
+    stateFrame *stack = calloc(sizeof(stateFrame), MAX_STACK);
     if (!stack)
     {
         printf("Error: memory allocation failed\n");
         return -1;
     }
-    int state = 1;
-    char c
-
+    int sp = 0;
+    stack[sp].remainder = input;
 }
 
 int main()
@@ -421,8 +485,8 @@ int main()
             concat(
                 interval('0', '9'),
                 kleene(interval('0', '9')))));
-    
-    //r = alternation(terminal('a'), concat(terminal('a'),terminal('b')));
+
+    // r = alternation(terminal('a'), concat(terminal('a'),terminal('b')));
 
     printRegExp(r);
 
@@ -440,6 +504,7 @@ int main()
     printf("start\n");
     compile(ExpNFA, CharNFA);
     printf("NFA\n");
+    //refineEpsilon(CharNFA);
     freeRegExp(r);
     printNFA(CharNFA);
     r = NULL;
