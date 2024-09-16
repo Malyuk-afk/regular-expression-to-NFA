@@ -9,7 +9,7 @@
 #define INTERVAL 5
 
 #define MAX_STATE 100
-#define MAX_STACK 100
+#define MAX_STACK 300
 #define MAX_Terminal 96 // printable characters are from 1 to 95, 0 for epsilon
 #define EPSILON (0 + 31)
 #define INDEX(c) ((c) - 31)
@@ -409,7 +409,7 @@ int printNFA(CharList ***CharNFA)
 typedef struct
 {
     char *remainder;
-    CharList *state;
+    CharList *NFA;
 } stateFrame;
 
 int runNFA(CharList ***CharNFA, char *input)
@@ -421,22 +421,108 @@ int runNFA(CharList ***CharNFA, char *input)
         return -1;
     }
     int sp = 0;
-    stack[sp].remainder = input;
+    stack[0].remainder = input;
+    stack[0].NFA = CharNFA[1][0];
+    char c;
+    char *p;
+    int state;
+    CharList *q;
+    while (1)
+    {
+        if (!stack[sp].NFA && sp == 0)
+        {
+            return 0;
+        }
+        else if (!stack[sp].NFA)
+        {
+            sp--;
+            continue;
+        }
+        state = stack[sp].NFA->c;
+        if (!state)
+        {
+            return 1;
+        }
+        p = stack[sp].remainder;
+        stack[sp].NFA = stack[sp].NFA->next;
+        sp++;
+        if (sp == MAX_STACK - 1)
+        {
+            printf("Error: runNFA stack overflow\n");
+            exit(1);
+        }
+        if (!(sp % 2))
+        {
+            if (!*p)
+            {
+                for (q = CharNFA[state][0]; q; q = q->next)
+                {
+                    if (q->c == 0)
+                        return 1;
+                }
+                sp--;
+                continue;
+            }
+            stack[sp].remainder = p;
+            stack[sp].NFA = CharNFA[state][0];
+        }
+        else
+        {
+            stack[sp].remainder = p + 1;
+            c = *p;
+            stack[sp].NFA = CharNFA[state][INDEX(c)];
+        }
+    }
 }
 
 void refineEpsilon(CharList ***CharNFA)
 {
-    CharList *stack = (CharList *)calloc(sizeof(CharList *), MAX_STACK);
+    CharList **stack = (CharList **)calloc(sizeof(CharList *), MAX_STACK);
     if (!stack)
     {
         printf("Error: memory allocation failed\n");
         return;
     }
     CharList *p;
-    int sp = 0;
+    int sp;
     for (int i = 1; CharNFA[i]; i++)
     {
         p = CharNFA[i][0]->next;
+        if (!p)
+        {
+            continue;
+        }
+        stack[0] = p;
+        sp = 0;
+        char c;
+        while (1)
+        {
+            if ((!stack[sp]) && (sp == 0))
+            {
+                break;
+            }
+            else if (!stack[sp])
+            {
+                sp--;
+            }
+            c = stack[sp]->c;
+            stack[sp] = stack[sp]->next;
+            if (!c)
+            {
+                continue;
+            }
+            addCharList(p, c);
+            if (stack[sp])
+            {
+                sp++;
+                if (sp == MAX_STACK - 1)
+                {
+                    printf("Error: refineEpsilon stack overflow\n");
+                    exit(1);
+                }
+            }
+            stack[sp] = CharNFA[c][0]->next;
+        }
     }
 }
 
@@ -476,9 +562,28 @@ int main()
     printf("start\n");
     compile(ExpNFA, CharNFA);
     printf("NFA\n");
-    // refineEpsilon(CharNFA);
-    freeRegExp(r);
-    printNFA(CharNFA);
+    refineEpsilon(CharNFA);
+    if (runNFA(CharNFA, "31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679.0"))
+    {
+        printf("match\n");
+    }
+    else
+    {
+        printf("not match\n");
+    }
+    // freeRegExp(r);
+    // printNFA(CharNFA);
     r = NULL;
     return 0;
+
+    /*CharList ***CharNFA = calloc(sizeof(CharList **), MAX_STATE);
+    for (int i = 1; i < 10; i++)
+    {
+        addTerminal(CharNFA, EPSILON, i, i);
+        addTerminal(CharNFA, EPSILON, i, i + 1);
+    }
+    addTerminal(CharNFA, EPSILON, 10, 10);
+    printNFA(CharNFA);
+    refineEpsilon(CharNFA);
+    printNFA(CharNFA);*/
 }
