@@ -222,6 +222,24 @@ int newstate(void **NFA, int currentState)
     return i;
 }
 
+void addCharList(CharList *p, int nextstate)
+{
+    while (p->next && p->c != nextstate)
+    {
+        p = p->next;
+    }
+    if (p->c == nextstate)
+    {
+        return;
+    }
+    else
+    {
+        p->next = allocCharList();
+        p = p->next;
+        p->c = nextstate;
+    }
+}
+
 int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
 {
     int i = state;
@@ -237,27 +255,13 @@ int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
     CharList *q = CharNFA[state][INDEX(c)];
     if (!q)
     {
-        q = (CharList *)calloc(sizeof(CharList), 1);
-        if (!q)
-        {
-            printf("Error: memory allocation failed\n");
-            return -1;
-        }
+        q = allocCharList();
         q->c = nextstate;
         CharNFA[state][INDEX(c)] = q;
     }
     else
     {
-        while (q->next && q->c != nextstate)
-        {
-            q = q->next;
-        }
-        if (q->c != nextstate)
-        {
-            q->next = allocCharList();
-            q = q->next;
-            q->c = nextstate;
-        }
+        addCharList(q, nextstate);
     }
     return 0;
 }
@@ -273,13 +277,13 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
 
     while (ExpNFA[state])
     {
-        //epsilon identity transition is added to the beginning of the list
+        // epsilon identity transition is added to the beginning of the list
         addTerminal(CharNFA, EPSILON, state, state);
 
         while (ExpNFA[state])
         {
             p = ExpNFA[state];
-             type = p->exp->type;
+            type = p->exp->type;
             printRegExp(p->exp);
             printf("\n");
             printf("state %d\n", state);
@@ -402,54 +406,6 @@ int printNFA(CharList ***CharNFA)
     }
 }
 
-void refineEpsilon(CharList ***CharNFA)
-{
-    int i, j, k;
-    CharList *p, *q, *r;
-    for (i = 0; i < MAX_STATE; i++)
-    {
-        if (CharNFA[i])
-        {
-            for (j = 0; j < MAX_Terminal; j++)
-            {
-                p = CharNFA[i][j];
-                if (p)
-                {
-                    if (j == 0)
-                    {
-                        while (p)
-                        {
-                            q = CharNFA[p->c][0];
-                            while (q)
-                            {
-                                r = CharNFA[i][0];
-                                while (r && r->c != q->c)
-                                {
-                                    r = r->next;
-                                }
-                                if (!r)
-                                {
-                                    r = (CharList *)calloc(sizeof(CharList), 1);
-                                    if (!r)
-                                    {
-                                        printf("Error: memory allocation failed\n");
-                                        return;
-                                    }
-                                    r->c = q->c;
-                                    r->next = CharNFA[i][0];
-                                    CharNFA[i][0] = r;
-                                }
-                                q = q->next;
-                            }
-                            p = p->next;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 typedef struct
 {
     char *remainder;
@@ -466,6 +422,22 @@ int runNFA(CharList ***CharNFA, char *input)
     }
     int sp = 0;
     stack[sp].remainder = input;
+}
+
+void refineEpsilon(CharList ***CharNFA)
+{
+    CharList *stack = (CharList *)calloc(sizeof(CharList *), MAX_STACK);
+    if (!stack)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+    CharList *p;
+    int sp = 0;
+    for (int i = 1; CharNFA[i]; i++)
+    {
+        p = CharNFA[i][0]->next;
+    }
 }
 
 int main()
@@ -504,7 +476,7 @@ int main()
     printf("start\n");
     compile(ExpNFA, CharNFA);
     printf("NFA\n");
-    //refineEpsilon(CharNFA);
+    // refineEpsilon(CharNFA);
     freeRegExp(r);
     printNFA(CharNFA);
     r = NULL;
