@@ -143,7 +143,44 @@ void freeRegExp(RegExp *r)
     {
         free(r->data);
     }
-    free(r);
+}
+
+void freeExpNFA(ExpList **p)
+{
+    ExpList *q, *next;
+    for (int i = 0; i < MAX_STATE; i++)
+    {
+        q = p[i];
+        while (q)
+        {
+            free(q->exp);
+            next = q->next;
+            free(q);
+            q = next;
+        }
+    }
+}
+
+void freeCharNFA(CharList ***p)
+{
+    CharList *q, *next;
+    for (int i = 0; i < MAX_STATE; i++)
+    {
+        if (p[i])
+        {
+            for (int j = 0; j < MAX_Terminal; j++)
+            {
+                q = p[i][j];
+                while (q)
+                {
+                    next = q->next;
+                    free(q);
+                    q = next;
+                }
+            }
+            free(p[i]);
+        }
+    }
 }
 
 // print the regular expression tree
@@ -216,7 +253,7 @@ int newstate(void **NFA, int currentState)
         if (i == MAX_STATE)
         {
             printf("Error: too many states, max state is %d\n", MAX_STATE);
-            return 0;
+            exit(1);
         }
     }
     return i;
@@ -240,7 +277,7 @@ void addCharList(CharList *p, int nextstate)
     }
 }
 
-int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
+void addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
 {
     int i = state;
     if (!CharNFA[state])
@@ -249,7 +286,7 @@ int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
         if (!CharNFA[state])
         {
             printf("Error: memory allocation failed\n");
-            return -1;
+            exit(1);
         }
     }
     CharList *q = CharNFA[state][INDEX(c)];
@@ -263,7 +300,6 @@ int addTerminal(CharList ***CharNFA, char c, int state, int nextstate)
     {
         addCharList(q, nextstate);
     }
-    return 0;
 }
 
 int compile(ExpList **ExpNFA, CharList ***CharNFA)
@@ -284,9 +320,6 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
         {
             p = ExpNFA[state];
             type = p->exp->type;
-            printRegExp(p->exp);
-            printf("\n");
-            printf("state %d\n", state);
             if (type == CONCAT)
             {
                 left = ((Concat *)p->exp->data)->left;
@@ -296,15 +329,11 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
                 news = newstate((void **)ExpNFA, state);
                 if (!news)
                 {
-                    return -1;
+                    exit(1);
                 }
                 p->nextstate = news;
                 p->exp = left;
                 ExpNFA[news] = allocExpList();
-                if (!ExpNFA[news])
-                {
-                    return -1;
-                }
                 ExpNFA[news]->exp = right;
                 ExpNFA[news]->nextstate = nextstate;
             }
@@ -323,11 +352,7 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
             {
                 c = ((Terminal *)p->exp->data)->terminal;
                 nextstate = p->nextstate;
-                if (addTerminal(CharNFA, c, state, nextstate))
-                {
-                    return -1;
-                }
-                printf("current node: %p, next node: %p", p, p->next);
+                addTerminal(CharNFA, c, state, nextstate);
                 ExpNFA[state] = p->next;
                 free(p);
             }
@@ -343,10 +368,6 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
                     q = q->next;
                 }
                 q->next = allocExpList();
-                if (!q->next)
-                {
-                    return -1;
-                }
                 q = q->next;
                 q->exp = right;
                 q->nextstate = nextstate;
@@ -359,18 +380,13 @@ int compile(ExpList **ExpNFA, CharList ***CharNFA)
                 nextstate = p->nextstate;
                 for (c = start; c <= end; c++)
                 {
-                    if (addTerminal(CharNFA, c, state, nextstate))
-                    {
-                        return -1;
-                    }
+                    addTerminal(CharNFA, c, state, nextstate);
                 }
-                printf("current node: %p, next node: %p", p, p->next);
                 ExpNFA[state] = p->next;
                 free(p);
             }
         }
         state++;
-        printf("state %d\n", state);
     }
 }
 
@@ -475,13 +491,15 @@ int runNFA(CharList ***CharNFA, char *input)
     }
 }
 
+// add epsilon transitions to create epsilon closure
+// it will help a lot when run the NFA
 void refineEpsilon(CharList ***CharNFA)
 {
     CharList **stack = (CharList **)calloc(sizeof(CharList *), MAX_STACK);
     if (!stack)
     {
         printf("Error: memory allocation failed\n");
-        return;
+        exit(1);
     }
     CharList *p;
     int sp;
@@ -526,10 +544,22 @@ void refineEpsilon(CharList ***CharNFA)
     }
 }
 
+void test(CharList ***CharNFA, char *input, char *message)
+{
+    if (runNFA(CharNFA, input))
+    {
+        printf("\nYes, \"%s\" is %s.\n", input, message);
+    }
+    else
+    {
+        printf("\nNo, \"%s\" is not %s.\n", input, message);
+    }
+}
+
 int main()
 {
     RegExp *r;
-    // carete a regular expression tree "([0 − 9][0 − 9]∗.[0 − 9][0 − 9]∗)|(.[0 − 9][0 − 9]∗)"
+    // ([0 − 9][0 − 9]∗.[0 − 9][0 − 9]∗)|(.[0 − 9][0 − 9]∗)
     r = alternation(
         concat(
             concat(
@@ -544,11 +574,9 @@ int main()
                 interval('0', '9'),
                 kleene(interval('0', '9')))));
 
-    // r = alternation(terminal('a'), concat(terminal('a'),terminal('b')));
-
     printRegExp(r);
+    printf("\n");
 
-    //
     ExpList **ExpNFA = calloc(sizeof(ExpList *), MAX_STATE);
     CharList ***CharNFA = calloc(sizeof(CharList **), MAX_STATE);
 
@@ -557,33 +585,52 @@ int main()
     ExpNFA[1] = allocExpList();
     ExpNFA[1]->nextstate = 0;
     ExpNFA[1]->exp = r;
-    ExpNFA[0] = NULL;
 
-    printf("start\n");
     compile(ExpNFA, CharNFA);
-    printf("NFA\n");
     refineEpsilon(CharNFA);
-    if (runNFA(CharNFA, "31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679.0"))
-    {
-        printf("match\n");
-    }
-    else
-    {
-        printf("not match\n");
-    }
-    // freeRegExp(r);
-    // printNFA(CharNFA);
-    r = NULL;
-    return 0;
+    test(CharNFA, "3.1415926", "a rational number");
+    test(CharNFA, "a rational nember", "a rational number");
 
-    /*CharList ***CharNFA = calloc(sizeof(CharList **), MAX_STATE);
-    for (int i = 1; i < 10; i++)
-    {
-        addTerminal(CharNFA, EPSILON, i, i);
-        addTerminal(CharNFA, EPSILON, i, i + 1);
-    }
-    addTerminal(CharNFA, EPSILON, 10, 10);
-    printNFA(CharNFA);
+    freeRegExp(r);
+    freeExpNFA(ExpNFA);
+    freeCharNFA(CharNFA);
+    free(CharNFA);
+    free(ExpNFA);
+    ExpNFA = calloc(sizeof(ExpList *), MAX_STATE);
+    CharNFA = calloc(sizeof(CharList **), MAX_STATE);
+
+    //[A-Z][a-z]*((, [a-z][a-z]*)|( [a-z][a-z]*)))*(.|?)
+    r =
+        concat(
+            concat(
+                concat(
+                    interval('A', 'Z'),
+                    kleene(interval('a', 'z'))),
+                kleene(
+                    alternation(
+                        concat(terminal(','),
+                               concat(terminal(' '),
+                                      concat(interval('a', 'z'), kleene(interval('a', 'z'))))),
+                        concat(terminal(' '),
+                               concat(interval('a', 'z'), kleene(interval('a', 'z'))))))),
+            alternation(terminal('.'), terminal('?')));
+
+    printRegExp(r);
+    printf("\n");
+
+    ExpNFA[1] = allocExpList();
+    ExpNFA[1]->nextstate = 0;
+    ExpNFA[1]->exp = r;
+
+    compile(ExpNFA, CharNFA);
     refineEpsilon(CharNFA);
-    printNFA(CharNFA);*/
+    test(CharNFA, "Hello, world.", "a sentence");
+    test(CharNFA, "Hello, world", "a sentence");
+    test(CharNFA, "Hello world.", "a sentence");
+    test(CharNFA, "Hello world", "a sentence");
+    test(CharNFA, "Hello, world?", "a sentence");
+    test(CharNFA, "Hello, World?", "a sentence");
+    test(CharNFA, "Yes, is a sentence.", "a sentence");
+
+    return 0;
 }
